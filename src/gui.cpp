@@ -500,103 +500,6 @@ namespace lualoader::gui {
             g_scale = s;
         }
 
-        bool point_in_gui(float x, float y);
-
-        void update_input() {
-#if defined(__ANDROID__)
-            bool android_touch_handled = false;
-            void *cm_instance = g_gfx.f_cm_instance ? read_static_object(g_gfx.f_cm_instance) : nullptr;
-            if (cm_instance && g_gfx.m_cm_get_num_cursors && g_gfx.m_cm_get_cursor &&
-                g_gfx.m_adjust_real_screen && g_gfx.f_cursor_pos && g_gfx.f_cursor_down) {
-                auto fn_num_cursors = reinterpret_cast<FnGetNumCursors>(patchlib_method_get_pointer(g_gfx.m_cm_get_num_cursors));
-                auto fn_get_cursor = reinterpret_cast<FnGetCursor>(patchlib_method_get_pointer(g_gfx.m_cm_get_cursor));
-                auto fn_adjust = reinterpret_cast<FnAdjustRealScreenForUI>(patchlib_method_get_pointer(g_gfx.m_adjust_real_screen));
-
-                if (fn_num_cursors && fn_get_cursor && fn_adjust) {
-                    const int num = fn_num_cursors(cm_instance);
-                    void *active_cursor = nullptr;
-                    Vec2 active_ui_pos{g_mouse_x, g_mouse_y};
-                    bool touch_down = false;
-
-                    for (int i = 0; i < num; ++i) {
-                        void *c = fn_get_cursor(cm_instance, i);
-                        if (!c) continue;
-                        auto *pos_ptr = static_cast<Vec2 *>(patchlib_field_get_pointer(g_gfx.f_cursor_pos, c));
-                        auto *down_ptr = static_cast<unsigned char *>(patchlib_field_get_pointer(g_gfx.f_cursor_down, c));
-                        if (!pos_ptr || !down_ptr) continue;
-
-                        const bool is_down = (*down_ptr != 0);
-                        const Vec2 ui_pos = fn_adjust(*pos_ptr);
-                        const bool in_gui = point_in_gui(ui_pos.x, ui_pos.y);
-
-                        if (is_down) {
-                            if (in_gui || (!g_drag_id.empty() && g_prev_mouse_down) || (!g_slider_active.empty() && g_prev_mouse_down)) {
-                                active_cursor = c;
-                                active_ui_pos = ui_pos;
-                                touch_down = true;
-
-                                if (g_gfx.f_cursor_ignore_world) {
-                                    auto *p = static_cast<unsigned char *>(patchlib_field_get_pointer(g_gfx.f_cursor_ignore_world, c));
-                                    if (p) *p = 1;
-                                }
-                                if (g_gfx.f_cursor_ignore) {
-                                    auto *p = static_cast<unsigned char *>(patchlib_field_get_pointer(g_gfx.f_cursor_ignore, c));
-                                    if (p) *p = 1;
-                                }
-                                break;
-                            }
-                        } else if (g_prev_mouse_down && (in_gui || !g_drag_id.empty() || !g_slider_active.empty())) {
-                            active_cursor = c;
-                            active_ui_pos = ui_pos;
-                            touch_down = false;
-                            break;
-                        }
-                    }
-
-                    if (active_cursor || g_prev_mouse_down) {
-                        android_touch_handled = true;
-                        if (active_cursor) {
-                            g_mouse_x = active_ui_pos.x;
-                            g_mouse_y = active_ui_pos.y;
-                        }
-                        g_mouse_down = touch_down;
-                        g_mouse_pressed = g_mouse_down && !g_prev_mouse_down;
-                        g_mouse_released = !g_mouse_down && g_prev_mouse_down;
-                        g_prev_mouse_down = g_mouse_down;
-
-                        if (!g_mouse_down && !g_mouse_released) {
-                            g_mouse_x = -FLT_MAX;
-                            g_mouse_y = -FLT_MAX;
-                        }
-                    }
-                }
-            }
-
-            if (!android_touch_handled) {
-                const bool raw_down = read_bool(g_gfx.a_mouse_left, false);
-                if (raw_down) {
-                    g_mouse_x = static_cast<float>(read_int(g_gfx.a_mouse_x, 0));
-                    g_mouse_y = static_cast<float>(read_int(g_gfx.a_mouse_y, 0));
-                }
-                g_mouse_down = raw_down;
-                g_mouse_pressed = g_mouse_down && !g_prev_mouse_down;
-                g_mouse_released = !g_mouse_down && g_prev_mouse_down;
-                g_prev_mouse_down = g_mouse_down;
-                if (!g_mouse_down && !g_mouse_released) {
-                    g_mouse_x = -FLT_MAX;
-                    g_mouse_y = -FLT_MAX;
-                }
-            }
-#else
-            g_mouse_x = static_cast<float>(read_int(g_gfx.a_mouse_x, 0));
-            g_mouse_y = static_cast<float>(read_int(g_gfx.a_mouse_y, 0));
-            g_mouse_down = read_bool(g_gfx.a_mouse_left, false);
-            g_mouse_pressed = g_mouse_down && !g_prev_mouse_down;
-            g_mouse_released = !g_mouse_down && g_prev_mouse_down;
-            g_prev_mouse_down = g_mouse_down;
-#endif
-        }
-
         bool mouse_in(const float x, const float y, const float w, const float h) {
             if (g_mouse_x == -FLT_MAX) return false;
             return g_mouse_x >= x && g_mouse_x <= x + w && g_mouse_y >= y && g_mouse_y <= y + h;
@@ -798,6 +701,101 @@ namespace lualoader::gui {
                 if (x >= ws.x && x <= ws.x + ws.w && y >= ws.y && y <= ws.y + body_h) return true;
             }
             return false;
+        }
+
+        void update_input() {
+#if defined(__ANDROID__)
+            bool android_touch_handled = false;
+            void *cm_instance = g_gfx.f_cm_instance ? read_static_object(g_gfx.f_cm_instance) : nullptr;
+            if (cm_instance && g_gfx.m_cm_get_num_cursors && g_gfx.m_cm_get_cursor &&
+                g_gfx.m_adjust_real_screen && g_gfx.f_cursor_pos && g_gfx.f_cursor_down) {
+                auto fn_num_cursors = reinterpret_cast<FnGetNumCursors>(patchlib_method_get_pointer(g_gfx.m_cm_get_num_cursors));
+                auto fn_get_cursor = reinterpret_cast<FnGetCursor>(patchlib_method_get_pointer(g_gfx.m_cm_get_cursor));
+                auto fn_adjust = reinterpret_cast<FnAdjustRealScreenForUI>(patchlib_method_get_pointer(g_gfx.m_adjust_real_screen));
+
+                if (fn_num_cursors && fn_get_cursor && fn_adjust) {
+                    const int num = fn_num_cursors(cm_instance);
+                    void *active_cursor = nullptr;
+                    Vec2 active_ui_pos{g_mouse_x, g_mouse_y};
+                    bool touch_down = false;
+
+                    for (int i = 0; i < num; ++i) {
+                        void *c = fn_get_cursor(cm_instance, i);
+                        if (!c) continue;
+                        auto *pos_ptr = static_cast<Vec2 *>(patchlib_field_get_pointer(g_gfx.f_cursor_pos, c));
+                        auto *down_ptr = static_cast<unsigned char *>(patchlib_field_get_pointer(g_gfx.f_cursor_down, c));
+                        if (!pos_ptr || !down_ptr) continue;
+
+                        const bool is_down = (*down_ptr != 0);
+                        const Vec2 ui_pos = fn_adjust(*pos_ptr);
+                        const bool in_gui = point_in_gui(ui_pos.x, ui_pos.y);
+
+                        if (is_down) {
+                            if (in_gui || (!g_drag_id.empty() && g_prev_mouse_down) || (!g_slider_active.empty() && g_prev_mouse_down)) {
+                                active_cursor = c;
+                                active_ui_pos = ui_pos;
+                                touch_down = true;
+
+                                if (g_gfx.f_cursor_ignore_world) {
+                                    auto *p = static_cast<unsigned char *>(patchlib_field_get_pointer(g_gfx.f_cursor_ignore_world, c));
+                                    if (p) *p = 1;
+                                }
+                                if (g_gfx.f_cursor_ignore) {
+                                    auto *p = static_cast<unsigned char *>(patchlib_field_get_pointer(g_gfx.f_cursor_ignore, c));
+                                    if (p) *p = 1;
+                                }
+                                break;
+                            }
+                        } else if (g_prev_mouse_down && (in_gui || !g_drag_id.empty() || !g_slider_active.empty())) {
+                            active_cursor = c;
+                            active_ui_pos = ui_pos;
+                            touch_down = false;
+                            break;
+                        }
+                    }
+
+                    if (active_cursor || g_prev_mouse_down) {
+                        android_touch_handled = true;
+                        if (active_cursor) {
+                            g_mouse_x = active_ui_pos.x;
+                            g_mouse_y = active_ui_pos.y;
+                        }
+                        g_mouse_down = touch_down;
+                        g_mouse_pressed = g_mouse_down && !g_prev_mouse_down;
+                        g_mouse_released = !g_mouse_down && g_prev_mouse_down;
+                        g_prev_mouse_down = g_mouse_down;
+
+                        if (!g_mouse_down && !g_mouse_released) {
+                            g_mouse_x = -FLT_MAX;
+                            g_mouse_y = -FLT_MAX;
+                        }
+                    }
+                }
+            }
+
+            if (!android_touch_handled) {
+                const bool raw_down = read_bool(g_gfx.a_mouse_left, false);
+                if (raw_down) {
+                    g_mouse_x = static_cast<float>(read_int(g_gfx.a_mouse_x, 0));
+                    g_mouse_y = static_cast<float>(read_int(g_gfx.a_mouse_y, 0));
+                }
+                g_mouse_down = raw_down;
+                g_mouse_pressed = g_mouse_down && !g_prev_mouse_down;
+                g_mouse_released = !g_mouse_down && g_prev_mouse_down;
+                g_prev_mouse_down = g_mouse_down;
+                if (!g_mouse_down && !g_mouse_released) {
+                    g_mouse_x = -FLT_MAX;
+                    g_mouse_y = -FLT_MAX;
+                }
+            }
+#else
+            g_mouse_x = static_cast<float>(read_int(g_gfx.a_mouse_x, 0));
+            g_mouse_y = static_cast<float>(read_int(g_gfx.a_mouse_y, 0));
+            g_mouse_down = read_bool(g_gfx.a_mouse_left, false);
+            g_mouse_pressed = g_mouse_down && !g_prev_mouse_down;
+            g_mouse_released = !g_mouse_down && g_prev_mouse_down;
+            g_prev_mouse_down = g_mouse_down;
+#endif
         }
 
         // ====================================================================
