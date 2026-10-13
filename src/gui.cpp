@@ -233,6 +233,9 @@ namespace lualoader::gui {
             Accessor a_mouse_x, a_mouse_y;
             Accessor a_mouse_left, a_mouse_left_release, a_mouse_right;
             Accessor a_show_splash;
+#if defined(__ANDROID__)
+            patch_handle_t m_setup_rendering_ui{nullptr};
+#endif
         };
 
         Gfx g_gfx;
@@ -287,6 +290,13 @@ namespace lualoader::gui {
                 g_gfx.m_draw_inv_bg = get_method(t_utils, "DrawInvBG", 3);
                 g_gfx.m_draw_border_string = get_method(t_utils, "DrawBorderString", 8);
             }
+
+#if defined(__ANDROID__)
+            const patch_handle_t t_runner = patchlib_type_get_type("", "XNAUnityRunner");
+            if (t_runner) {
+                g_gfx.m_setup_rendering_ui = get_method(t_runner, "SetupRenderingUI", 1);
+            }
+#endif
 
             g_gfx.usable = g_gfx.f_sprite_batch && g_gfx.m_sb_begin && g_gfx.m_sb_end &&
                            g_gfx.m_draw_inv_bg && g_gfx.m_draw_border_string;
@@ -1295,6 +1305,23 @@ namespace lualoader::gui {
             // 启动画面（showSplash）阶段贴图/字体尚未就绪，此时绘制会导致
             // DrawInvBG / DrawBorderString 解引用空资源而崩溃，必须跳过。
             if (read_bool(g_gfx.a_show_splash, false)) return;
+
+#if defined(__ANDROID__)
+            struct UIRenderScope {
+                ~UIRenderScope() {
+                    if (g_gfx.m_setup_rendering_ui) {
+                        unsigned char v = 0;
+                        void *args[1] = {&v};
+                        patchlib_method_invoke_args(g_gfx.m_setup_rendering_ui, nullptr, nullptr, args);
+                    }
+                }
+            } ui_scope;
+            if (g_gfx.m_setup_rendering_ui) {
+                unsigned char v = 1;
+                void *args[1] = {&v};
+                patchlib_method_invoke_args(g_gfx.m_setup_rendering_ui, nullptr, nullptr, args);
+            }
+#endif
 
             update_screen_size();
             update_input();
